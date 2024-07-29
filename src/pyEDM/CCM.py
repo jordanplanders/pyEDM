@@ -4,7 +4,7 @@ from multiprocessing import Pool
 
 # package modules
 from pandas import DataFrame, concat
-from numpy  import array, exp, fmax, divide, mean, nan, roll, sum, zeros
+from numpy  import array, exp, fmax, divide, mean, nan, roll, sum, zeros, in1d, arange, isin
 from numpy.random import default_rng
 
 # local modules
@@ -32,7 +32,11 @@ class CCM:
                   validLib        = [],
                   noTime          = False,
                   ignoreNan       = True,
-                  verbose         = False ):
+                  verbose         = False,
+                  aggMethod       = None,
+                  weighted        = None,
+                  num_threads     = None,
+                  pred_num        = None):
         '''Initialize CCM.'''
 
         # Assign parameters from API arguments
@@ -54,6 +58,7 @@ class CCM:
         self.noTime          = noTime
         self.ignoreNan       = ignoreNan
         self.verbose         = verbose
+        self.pred_num = pred_num
 
         # Set full lib & pred
         self.lib = self.pred = [ 1, self.Data.shape[0] ]
@@ -62,6 +67,10 @@ class CCM:
         self.libMeans      = None # DataFrame of CrossMap results
         self.PredictStats1 = None # DataFrame of CrossMap stats
         self.PredictStats2 = None # DataFrame of CrossMap stats
+
+        self.aggMethod = aggMethod if aggMethod is not None else mean
+        self.weighted  = weighted  if weighted  is not None else True
+        self.num_threads = num_threads if num_threads is not None else 2
 
         # Setup
         self.Validate() # CCM Method
@@ -104,11 +113,14 @@ class CCM:
     #-------------------------------------------------------------------
     # Methods
     #-------------------------------------------------------------------
-    def Project( self, sequential = False ) :
+    def Project( self, sequential = False) :
         '''CCM both directions with CrossMap()'''
 
         if self.verbose:
             print( f'{self.name}: Project()' )
+
+        if self.num_threads == 1:
+            sequential = True
 
         if sequential : # Sequential alternative to multiprocessing 
             FwdCM = self.CrossMap( 'FWD' )
@@ -117,7 +129,7 @@ class CCM:
         else :
             # multiprocessing Pool CrossMap both directions simultaneously
             poolArgs = [ 'FWD', 'REV' ]
-            with Pool( processes = 2 ) as pool :
+            with Pool( processes = self.num_threads ) as pool :
                 CrossMapList = pool.map( self.CrossMap, poolArgs )
 
             self.CrossMapList = CrossMapList
@@ -183,13 +195,28 @@ class CCM:
         # Copy S.lib_i since it's replaced every iteration
         lib_i   = S.lib_i.copy() 
         N_lib_i = len( lib_i )
+        knn = S.knn
 
         libRhoMap  = {} # Output dict libSize key : mean rho value
         libStatMap = {} # Output dict libSize key : list of ComputeError dicts
+        libPredMap = {} # Output dict libSize key : list of predictions
+
+        # colVec = self.Data[[S.columns[0]]].to_numpy()
 
         # Loop for library sizes
+        # recon mission-JPL
+        lib_picks_dict = {}
+        lib_perf_dict = {}
         for libSize in self.libSizes :
+            # print(f'libSize: {libSize}')
+            lib_picks_dict[libSize] = []
+            # lib_perf_dict[libSize] = []
             rhos = zeros( self.sample )
+
+            # ## modification
+            # col_preds = zeros( (len(S.pred_i), self.sample+1) )
+            # tar_preds = zeros( (len(S.pred_i), self.sample+1) )
+
             if self.includeData :
                 predictStats = [None] * self.sample
 
@@ -198,11 +225,16 @@ class CCM:
                 # Generate library row indices for this subsample
                 rng_i = RNG.choice( lib_i, size = min( libSize, N_lib_i ),
                                     replace = False )
+                # trying to understand composition of library at higher lib sizes
+                lib_picks_dict[libSize].append(rng_i)
 
-                S.lib_i = rng_i 
+                S.lib_i = rng_i
+                S.knn = min([knn, len(S.lib_i) - 1])
 
                 S.FindNeighbors() # Depends on S.lib_i
+                # S.knn_neighbors is the set of knn nearest neighbor indexes for each prediction row (as determined in col_var space)
 
+                # print(S.knn_neighbors.shape)
                 # Code from Simplex:Project ---------------------------------
                 # First column is minimum distance of all N pred rows
                 minDistances = S.knn_distances[:,0]
@@ -216,16 +248,21 @@ class CCM:
 
                 # Matrix of knn_neighbors + Tp defines library target values
                 knn_neighbors_Tp = S.knn_neighbors + self.Tp      # Npred x k
-
+                # knn_neighbors_Tp is the set of knn nearest neighbor prediction indexes (located at index +Tp) for each prediction row
                 libTargetValues = zeros( knn_neighbors_Tp.shape ) # Npred x k
                 for j in range( knn_neighbors_Tp.shape[1] ) :
                     libTargetValues[ :, j ][ :, None ] = \
                         S.targetVec[ knn_neighbors_Tp[ :, j ] ]
                 # Code from Simplex:Project ----------------------------------
-
+                # print(libTargetValues.shape, libTargetValues, weights)
                 # Projection is average of weighted knn library target values
-                projection = sum( weights * libTargetValues,
+                if self.weighted is True:
+                    projection = sum( weights * libTargetValues,
                                   axis = 1) / weightRowSum
+                else:
+                    projection = sum(libTargetValues, axis=1) / S.knn
+
+
 
                 # Align observations & predictions as in FormatProjection()
                 # Shift projection by Tp
@@ -235,25 +272,79 @@ class CCM:
                 elif S.Tp < 0 :
                     projection[ S.Tp: ] = nan
 
-                err = ComputeError( S.targetVec[ S.pred_i, 0 ],
+                # calculate error based on predictions not made on library data
+                # mask = in1d(S.pred_i, S.lib_i)
+                # err = ComputeError(S.targetVec[S.pred_i[mask], 0],
+                #                    projection[mask], digits=5)
+
+                #
+                # # TODO Remove the lib_i from the pred_i list
+                if self.pred_num is not None:
+                    RNG = default_rng(self.seed)
+                    pred_sample = RNG.choice(S.pred_i, size=min(len(S.pred_i), self.pred_num),
+                                           replace=False)
+                    bool_mask = isin(S.pred_i, pred_sample)
+                    # bool_pred_saple = S.pred_i == pred_sample
+                    # print('len(S.targetVec)', len(S.targetVec), len(S.targetVec[S.pred_i, 0 ]), len(bool_mask))
+                    # print('len(projection)', len(projection))
+                    # print(S.targetVec[ pred_sample,0], projection)
+
+                err = ComputeError( S.targetVec[S.pred_i, 0 ],
                                     projection, digits = 5 )
+                # tar_preds[:, 0] = S.targetVec[ S.pred_i, 0 ]
+                # # print(S.lib_i)
+                # # print(S.pred_i)
+                # # print(S.pred_i)
+                # # err['pred_i'] = S.pred_i
 
                 rhos[ s ] = err['rho']
 
                 if self.includeData :
                     predictStats[s] = err
 
-            libRhoMap[ libSize ] = mean( rhos )
+                # ## modification
+                # # Save the predictions for this subsample
+                # tar_preds[ :, s+1 ] = projection
+                #
+                # libTargetValues = zeros(knn_neighbors_Tp.shape)  # Npred x k
+                # for j in range(knn_neighbors_Tp.shape[1]):
+                #     libTargetValues[:, j][:, None] = \
+                #         colVec[knn_neighbors_Tp[:, j]]
+                # # Code from Simplex:Project ----------------------------------
+                # # print(libTargetValues.shape, libTargetValues, weights)
+                # # Projection is average of weighted knn library target values
+                # projection = sum(weights * libTargetValues,
+                #                  axis=1) / weightRowSum
+                #
+                # # Align observations & predictions as in FormatProjection()
+                # # Shift projection by Tp
+                # projection = roll(projection, S.Tp)
+                # if S.Tp > 0:
+                #     projection[:S.Tp] = nan
+                # elif S.Tp < 0:
+                #     projection[S.Tp:] = nan
+                #
+                # col_preds[ :, s+1 ] = projection
+                # col_preds[:, 0] = S.targetVec[S.pred_i, 0]
+
+
+
+            def aggregate_data(data, func):
+                return func(data)
+
+            libRhoMap[ libSize ] = aggregate_data(rhos, self.aggMethod)
+            lib_perf_dict[libSize]=rhos
 
             if self.includeData :
                 libStatMap[ libSize ] = predictStats
+                # libPredMap[ libSize ] = tar_preds
 
         # Reset S.lib_i to original
         S.lib_i = lib_i
 
         if self.includeData :
-            return { 'columns' : S.columns, 'target' : S.target,
-                     'libRho' : libRhoMap, 'predictStats' : libStatMap }
+            return { 'columns' : S.columns, 'target' : S.target, 'lib_pics': lib_picks_dict, 'lib_perf':lib_perf_dict,
+                     'libRho' : libRhoMap, 'predictStats' : libStatMap, 'predictions' : libPredMap}
         else :
             return {'columns':S.columns, 'target':S.target, 'libRho':libRhoMap}
 

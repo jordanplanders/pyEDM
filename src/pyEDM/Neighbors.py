@@ -5,6 +5,9 @@ from warnings import warn
 from numpy import array, delete, full, zeros, apply_along_axis
 from scipy.spatial import KDTree
 
+# beta: this is to accommodate nans in the dataset
+# import hnswlib
+
 #--------------------------------------------------------------------
 # EDM Method
 #--------------------------------------------------------------------
@@ -84,27 +87,60 @@ def FindNeighbors( self ) :
         # Ask for enough knn to discard exclusionRadius neighbors
         # This is controlled by the factor: self.xRadKnnFactor
         # JP : Perhaps easier to just compute all neighbors?
-        knn_ = min( knn_ * self.xRadKnnFactor, len( self.lib_i ) )
+        if self.exclusionRadius > self.lib_i[-1] :
+            # exclusionRadius is greater than the library
+            # Ask for all library neighbors
+            knn_ = len( self.lib_i )
+        elif self.exclusionRadius >= self.xRadKnnFactor:
+            # Ask for enough knn to discard exclusionRadius neighbors
+            knn_ = self.exclusionRadius * knn_
+        else :
+            knn_ = min( knn_ * self.xRadKnnFactor, len( self.lib_i ) )
+
+        knn_ = min( knn_, len( self.lib_i )-1 )
 
     if len( self.validLib ) :
         # Have to examine all knn
         knn_ = len( self.lib_i )
 
-    #-----------------------------------------------
+#-----------------------------------------------
     # Compute KDTree on library of embedding vectors
     #-----------------------------------------------
-    self.kdTree = KDTree( self.Embedding.iloc[ self.lib_i, : ].to_numpy(),
+    if self.ignoreNan  is True:
+        self.kdTree = KDTree( self.Embedding.iloc[ self.lib_i, : ].to_numpy(),
                           leafsize      = 20,
                           compact_nodes = True,
                           balanced_tree = True )
 
-    #-----------------------------------------------
-    # Query prediction set
-    #-----------------------------------------------
-    numThreads = -1 # Use all CPU threads in kdTree.query
-    self.knn_distances, self.knn_neighbors = self.kdTree.query(
-        self.Embedding.iloc[ self.pred_i, : ].to_numpy(),
-        k = knn_, eps = 0, p = 2, workers = numThreads )
+        #-----------------------------------------------
+        # Query prediction set
+        #-----------------------------------------------
+        numThreads = -1 # Use all CPU threads in kdTree.query
+        self.knn_distances, self.knn_neighbors = self.kdTree.query(
+            self.Embedding.iloc[ self.pred_i, : ].to_numpy(),
+            k = knn_, eps = 0, p = 2, workers = numThreads )
+
+    # else:
+    #     # HNSW implementation
+    #     dim = self.Embedding.shape[1]
+    #     p = hnswlib.Index(space='l2', dim=dim)
+    #     p.init_index(max_elements=N_lib_rows, ef_construction=200, M=16)
+    #
+    #     for i in self.lib_i:
+    #         row = self.Embedding.iloc[i, :].to_numpy()
+    #         p.add_items(row, i)
+    #
+    #     p.set_ef(50)
+    #     self.knn_neighbors, self.knn_distances = [], []
+    #
+    #     for i in self.pred_i:
+    #         query_point = self.Embedding.iloc[i, :].to_numpy()
+    #         indices, distances = p.knn_query(query_point, k=knn_)
+    #         self.knn_neighbors.append(indices)
+    #         self.knn_distances.append(distances)
+    #
+    #     self.knn_neighbors = array(self.knn_neighbors)
+    #     self.knn_distances = array(self.knn_distances)
 
     #-----------------------------------------------
     # Shift knn_neighbors to lib_i reference
@@ -153,6 +189,7 @@ def FindNeighbors( self ) :
                                   self.knn_neighbors[:,j], knn_lib_map )
 
         self.knn_neighbors = knn_neighbors_
+    # print( f'{self.name}: FindNeighbors() : disjointLib', self.knn_neighbors )
 
     if self.libOverlap :
         # Remove degenerate knn_distances, knn_neighbors
@@ -164,6 +201,8 @@ def FindNeighbors( self ) :
         # True where self.pred_i == knn_neighbors_0
         i_overlap = [ i == j for i,j in zip( self.pred_i,
                                              knn_neighbors_0 ) ]
+        # print( f'{self.name}: FindNeighbors() : pred_i', len(self.pred_i) )
+        # print( f'{self.name}: FindNeighbors() : i_overlap', len(i_overlap) )
 
         # Shift col = 1:knn_ values into col = 0:(J-1)
         # Use 0:(J-1) instead of 0:self.knn since knn_ may be large
@@ -178,6 +217,7 @@ def FindNeighbors( self ) :
         if not exclusionRadius_knn :
             self.knn_distances = delete(self.knn_distances, self.knn, axis=1)
             self.knn_neighbors = delete(self.knn_neighbors, self.knn, axis=1)
+        # print( f'{self.name}: FindNeighbors() : libOverlap', self.knn_neighbors )
 
     if exclusionRadius_knn :
         # For each pred row find k nn outside exclusionRadius
@@ -207,11 +247,16 @@ def FindNeighbors( self ) :
                     break
 
             if -1E6 in knn_neighbors :
+                msg = f'{self.name}: FindNeighbors() : ExclusionRad()' + \
+                      ' Failed to find knn outside exclusionRadius ' + \
+                      f'{self.exclusionRadius}. Returning orginal knn.' + \
+                      f' libsize: {len(self.lib_i)} knnRows: {len(knnRow)}'
                 knn_neighbors = knnRow [ : self.knn ]
                 knn_distances = knnDist[ : self.knn ]
-                msg = f'{self.name}: FindNeighbors() : ExclusionRad()' +\
-                    ' Failed to find knn outside exclusionRadius ' +\
-                    f'{self.exclusionRadius}. Returning orginal knn.'
+                # msg = f'{self.name}: FindNeighbors() : ExclusionRad()' +\
+                #     ' Failed to find knn outside exclusionRadius ' +\
+                #     f'{self.exclusionRadius}. Returning orginal knn.' +\
+                #     f' libsize: {len(self.lib_i)} knn: {self.knn}'
                 warn( msg )
 
             return knn_neighbors, knn_distances
@@ -238,6 +283,7 @@ def FindNeighbors( self ) :
         d = [ i for i in range( self.knn, self.knn_distances.shape[1] ) ]
         self.knn_distances = delete( self.knn_distances, d, axis=1 )
         self.knn_neighbors = delete( self.knn_neighbors, d, axis=1 )
+        # print( f'{self.name}: FindNeighbors() : exclusionRadius', len(self.knn_neighbors[0]), self.knn_neighbors )
 
     if len( self.validLib ) :
         # Conditional embedding

@@ -29,7 +29,8 @@ class Simplex( EDMClass ):
                   validLib        = [],
                   noTime          = False,
                   ignoreNan       = True,
-                  verbose         = False ):
+                  verbose         = False,
+                  weighted        = None):
         '''Initialize Simplex as child of EDM. 
            Set data object to dataFrame.
            Setup : Validate(), CreateIndices(), get targetVec, allTime'''
@@ -52,6 +53,8 @@ class Simplex( EDMClass ):
         self.noTime          = noTime
         self.ignoreNan       = ignoreNan
         self.verbose         = verbose
+        self.weighted        = weighted  if weighted  is not None else True
+
 
         # Prediction row accounting of library neighbor ties
         # self.anyTies       = False
@@ -106,12 +109,24 @@ class Simplex( EDMClass ):
                 self.targetVec[ knn_neighbors_Tp[ :, j ] ]
 
         # Projection is average of weighted knn library target values
-        self.projection_ = sum(weights * libTargetValues, axis=1) / weightRowSum
+        # self.projection_ = sum(weights * libTargetValues, axis=1) / weightRowSum
+
+        if self.weighted is True:
+            projection = sum(weights * libTargetValues,
+                             axis=1) / weightRowSum
+        else:
+            projection = sum(libTargetValues, axis=1) / self.knn
+
+        self.projection_ = projection
 
         # "Variance" estimate assuming weights are probabilities
         libTargetPredDiff = subtract( libTargetValues, self.projection_[:,None] )
         deltaSqr          = power( libTargetPredDiff, 2 )
-        self.variance     = sum( weights * deltaSqr, axis = 1 ) / weightRowSum
+        if self.weighted is True:
+            self.variance = sum( weights * deltaSqr, axis = 1 ) / weightRowSum
+        else:
+            self.variance = sum( deltaSqr, axis = 1 ) / self.knn
+        # self.variance     = sum( weights * deltaSqr, axis = 1 ) / weightRowSum
 
     #-------------------------------------------------------------------
     def Generate( self ) :

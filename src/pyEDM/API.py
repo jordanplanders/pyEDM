@@ -104,7 +104,8 @@ def Simplex( dataFrame       = None,
              verbose         = False,
              showPlot        = False,
              ignoreNan       = True,
-             returnObject    = False ):
+             returnObject    = False ,
+             weighted        = None):
     '''Simplex prediction of dataFrame target from columns.'''
 
     # Instantiate SimplexClass object
@@ -124,7 +125,8 @@ def Simplex( dataFrame       = None,
                       validLib        = validLib,
                       noTime          = noTime,
                       ignoreNan       = ignoreNan,
-                      verbose         = verbose )
+                      verbose         = verbose ,
+                      weighted        = weighted  )
 
     S.EmbedData()
     S.RemoveNan()
@@ -250,7 +252,11 @@ def CCM( dataFrame        = None,
          ignoreNan        = True,
          verbose          = False,
          showPlot         = False,
-         returnObject     = False ) :
+         returnObject     = False,
+         aggMethod        = None,
+         weighted         = None,
+         num_threads      = None,
+         pred_num        = None) :
     '''Convergent Cross Mapping.'''
 
     # Instantiate CCMClass object
@@ -271,13 +277,22 @@ def CCM( dataFrame        = None,
                   validLib        = validLib,
                   noTime          = noTime,
                   ignoreNan       = ignoreNan,
-                  verbose         = verbose )
+                  verbose         = verbose,
+                  aggMethod       = aggMethod,
+                  weighted        = weighted,
+                  num_threads     = num_threads,
+                  pred_num        = pred_num)
 
     # Embedding of Forward & Reverse mapping
     C.FwdMap.EmbedData()
-    C.FwdMap.RemoveNan()
+
+    # Remove NaNs from Forward mapping if ignoreNan is True
+    if C.ignoreNan:
+        C.FwdMap.RemoveNan()
+
     C.RevMap.EmbedData()
-    C.RevMap.RemoveNan()
+    if C.ignoreNan:
+        C.RevMap.RemoveNan()
 
     C.Project()
 
