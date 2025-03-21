@@ -4,7 +4,7 @@ from multiprocessing import Pool
 
 # package modules
 from pandas import DataFrame, concat
-from numpy  import array, exp, fmax, divide, mean, nan, roll, sum, zeros, in1d, arange, isin
+from numpy import array, exp, fmax, divide, mean, nan, roll, sum, zeros, in1d, arange, isin, isnan, where
 from numpy.random import default_rng
 
 # local modules
@@ -36,7 +36,8 @@ class CCM:
                   aggMethod       = None,
                   weighted        = None,
                   num_threads     = None,
-                  pred_num        = None):
+                  pred_num        = None,
+                  predict_col     = False ) :
         '''Initialize CCM.'''
 
         # Assign parameters from API arguments
@@ -59,6 +60,7 @@ class CCM:
         self.ignoreNan       = ignoreNan
         self.verbose         = verbose
         self.pred_num = pred_num
+        self.predict_col = predict_col
 
         # Set full lib & pred
         self.lib = self.pred = [ 1, self.Data.shape[0] ]
@@ -78,6 +80,10 @@ class CCM:
         # Instantiate Forward and Reverse Mapping objects
         # Each __init__ calls Validate() & CreateIndices()
         # and sets up targetVec, allTime
+        if self.predict_col ==True:
+            predict_col = [col for col in target if 'predictant' in col][0]
+        else:
+            predict_col = None
         self.FwdMap = SimplexClass( dataFrame       = dataFrame,
                                     columns         = columns,
                                     target          = target, 
@@ -92,8 +98,13 @@ class CCM:
                                     validLib        = validLib,
                                     noTime          = noTime,
                                     ignoreNan       = ignoreNan,
-                                    verbose         = verbose )
+                                    verbose         = verbose ,
+                                    predict_col     = predict_col)
 
+        if self.predict_col ==True:
+            predict_col = [col for col in columns if 'predictant' in col][0]
+        else:
+            predict_col = None
         self.RevMap = SimplexClass( dataFrame       = dataFrame,
                                     columns         = target,
                                     target          = columns, 
@@ -108,7 +119,8 @@ class CCM:
                                     validLib        = validLib,
                                     noTime          = noTime,
                                     ignoreNan       = ignoreNan,
-                                    verbose         = verbose )
+                                    verbose         = verbose,
+                                    predict_col     = predict_col)
 
     #-------------------------------------------------------------------
     # Methods
@@ -248,7 +260,11 @@ class CCM:
 
                 # Matrix of knn_neighbors + Tp defines library target values
                 knn_neighbors_Tp = S.knn_neighbors + self.Tp      # Npred x k
-                # knn_neighbors_Tp is the set of knn nearest neighbor prediction indexes (located at index +Tp) for each prediction row
+                # if predictant in the columns, we won't consider Tp as we will assume that is already accounted for
+                if 'predictant' in S.columns:
+                    knn_neighbors_Tp = S.knn_neighbors
+                # knn_neighbors_Tp is the set of knn nearest neighbor prediction indexes (located at index +Tp)
+                # for each prediction row
                 libTargetValues = zeros( knn_neighbors_Tp.shape ) # Npred x k
                 for j in range( knn_neighbors_Tp.shape[1] ) :
                     libTargetValues[ :, j ][ :, None ] = \
@@ -281,15 +297,38 @@ class CCM:
                 # # TODO Remove the lib_i from the pred_i list
                 if self.pred_num is not None:
                     RNG = default_rng(self.seed)
-                    pred_sample = RNG.choice(S.pred_i, size=min(len(S.pred_i), self.pred_num),
-                                           replace=False)
-                    bool_mask = isin(S.pred_i, pred_sample)
-                    # bool_pred_saple = S.pred_i == pred_sample
+                    if self.pred_num <1:
+                        pred_num = int(self.pred_num * (len(S.pred_i)-1))    # if pred_num is a fraction
+                    else:
+                        pred_num = int(self.pred_num)
+
+                    pred_samplings = []
+                    available_proj_ind = where(~isnan(projection))[0]
+                    for _ in range(30):
+                        # pred_sample = RNG.choice(S.pred_i, size=min(len(S.pred_i)-1, pred_num),
+                        #                        replace=False)
+                        pred_sample = RNG.choice(available_proj_ind, size=min(len(available_proj_ind) - 1, pred_num),
+                                                 replace=False)
+                        # print('pred_sample', pred_sample)
+                        # print('S.targetVec', type(S.targetVec), S.targetVec)
+                        # print('projection', type(projection), projection)
+                        # print('S.pred_i', S.pred_i)
+
+                        err = ComputeError(S.targetVec[pred_sample, 0],
+                                           projection[pred_sample], digits=5)
+
+                        pred_samplings.append(err)
+
+                    pred_stats = DataFrame(pred_samplings)
+                    err = pred_stats.mean(axis=0).to_dict()
+
+                        # bool_mask = isin(S.pred_i, pred_sample)
+                        # bool_pred_saple = S.pred_i == pred_sample
                     # print('len(S.targetVec)', len(S.targetVec), len(S.targetVec[S.pred_i, 0 ]), len(bool_mask))
                     # print('len(projection)', len(projection))
                     # print(S.targetVec[ pred_sample,0], projection)
-
-                err = ComputeError( S.targetVec[S.pred_i, 0 ],
+                else:
+                    err = ComputeError( S.targetVec[S.pred_i, 0 ],
                                     projection, digits = 5 )
                 # tar_preds[:, 0] = S.targetVec[ S.pred_i, 0 ]
                 # # print(S.lib_i)

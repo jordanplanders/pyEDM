@@ -105,7 +105,8 @@ def Simplex( dataFrame       = None,
              showPlot        = False,
              ignoreNan       = True,
              returnObject    = False ,
-             weighted        = None):
+             weighted        = None,
+             predict_col     = None):
     '''Simplex prediction of dataFrame target from columns.'''
 
     # Instantiate SimplexClass object
@@ -126,7 +127,8 @@ def Simplex( dataFrame       = None,
                       noTime          = noTime,
                       ignoreNan       = ignoreNan,
                       verbose         = verbose ,
-                      weighted        = weighted  )
+                      weighted        = weighted,
+                      predict_col     = predict_col)
 
     S.EmbedData()
     S.RemoveNan()
@@ -256,7 +258,8 @@ def CCM( dataFrame        = None,
          aggMethod        = None,
          weighted         = None,
          num_threads      = None,
-         pred_num        = None) :
+         pred_num        = None,
+         predict_col      = False):
     '''Convergent Cross Mapping.'''
 
     # Instantiate CCMClass object
@@ -281,7 +284,8 @@ def CCM( dataFrame        = None,
                   aggMethod       = aggMethod,
                   weighted        = weighted,
                   num_threads     = num_threads,
-                  pred_num        = pred_num)
+                  pred_num        = pred_num,
+                  predict_col     = predict_col)
 
     # Embedding of Forward & Reverse mapping
     C.FwdMap.EmbedData()

@@ -57,9 +57,17 @@ class EDM:
             self.Embedding = pyEDM.API.Embed( dataFrame = self.Data, E = self.E,
                                         tau = self.tau, columns = self.columns )
         else :
-            self.Embedding = self.Data[ self.columns ] # Already an embedding 
+            # if want to predetermine predictant value, for example in the case of spatial where you need to be mindful
+            # of roll over from site to site. assumes 'predictant' will be the first column
+            if 'predictant' in self.columns[0]:
+                columns = self.columns[1:]
+            else :
+                columns = self.columns
+            self.Embedding = self.Data[columns] # Already an embedding
 
-    #--------------------------------------------------------------------
+            # self.Embedding = self.Data[self.columns]  # Already an embedding
+
+#--------------------------------------------------------------------
     def RemoveNan( self ) :
     #--------------------------------------------------------------------
         '''KDTree in Neighbors does not accept nan

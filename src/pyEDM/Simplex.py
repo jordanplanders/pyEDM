@@ -30,7 +30,8 @@ class Simplex( EDMClass ):
                   noTime          = False,
                   ignoreNan       = True,
                   verbose         = False,
-                  weighted        = None):
+                  weighted        = None,
+                  predict_col     = None ) :
         '''Initialize Simplex as child of EDM. 
            Set data object to dataFrame.
            Setup : Validate(), CreateIndices(), get targetVec, allTime'''
@@ -54,6 +55,7 @@ class Simplex( EDMClass ):
         self.ignoreNan       = ignoreNan
         self.verbose         = verbose
         self.weighted        = weighted  if weighted  is not None else True
+        self.predict_col     = predict_col
 
 
         # Prediction row accounting of library neighbor ties
@@ -66,7 +68,10 @@ class Simplex( EDMClass ):
         self.Validate()      # EDM Method
         self.CreateIndices() # Generate lib_i & pred_i, validLib : EDM Method
 
-        self.targetVec = self.Data[ [ self.target[0] ] ].to_numpy()
+        if self.predict_col is None:
+            self.predict_col = self.target[0]
+        # self.targetVec = self.Data[ [ self.target[0] ] ].to_numpy()
+        self.targetVec = self.Data[ [ self.predict_col ] ].to_numpy()
 
         if self.noTime :
             # Generate a time/index vector
@@ -102,6 +107,8 @@ class Simplex( EDMClass ):
         # loop over knn_neighbors_Tp columns to get target value column
         # vectors from the knn_neighbors_Tp row indices
         knn_neighbors_Tp = self.knn_neighbors + self.Tp     # N x k
+        if 'predictant' in  self.predict_col:
+            knn_neighbors_Tp = self.knn_neighbors
         libTargetValues  = zeros( knn_neighbors_Tp.shape )  # N x k
 
         for j in range( knn_neighbors_Tp.shape[1] ) : # for each column j of k   
