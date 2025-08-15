@@ -37,7 +37,9 @@ class CCM:
                   weighted        = None,
                   num_threads     = None,
                   pred_num        = None,
-                  predict_col     = False ) :
+                  predict_col     = False,
+                  selfPredict     = False,
+                  shuffleLibs = False ) :
         '''Initialize CCM.'''
 
         # Assign parameters from API arguments
@@ -61,12 +63,15 @@ class CCM:
         self.verbose         = verbose
         self.pred_num = pred_num
         self.predict_col = predict_col
+        self.selfPredict = selfPredict
+        self.shuffleLibs = shuffleLibs
 
         # Set full lib & pred
         self.lib = self.pred = [ 1, self.Data.shape[0] ]
 
         self.CrossMapList  = None # List of CrossMap results
         self.libMeans      = None # DataFrame of CrossMap results
+        self.libMeans_self = None # DataFrame of CrossMap results for self-prediction
         self.PredictStats1 = None # DataFrame of CrossMap stats
         self.PredictStats2 = None # DataFrame of CrossMap stats
 
@@ -84,6 +89,7 @@ class CCM:
             predict_col = [col for col in target if 'predictant' in col][0]
         else:
             predict_col = None
+
         self.FwdMap = SimplexClass( dataFrame       = dataFrame,
                                     columns         = columns,
                                     target          = target, 
@@ -100,6 +106,10 @@ class CCM:
                                     ignoreNan       = ignoreNan,
                                     verbose         = verbose ,
                                     predict_col     = predict_col)
+        if self.selfPredict is True:
+            self.FwdMap.selfPredict = self.FwdMap.columns[0] if len(self.FwdMap.columns) == 1 else None
+        else:
+            self.FwdMap.selfPredict = None
 
         if self.predict_col ==True:
             predict_col = [col for col in columns if 'predictant' in col][0]
@@ -121,10 +131,30 @@ class CCM:
                                     ignoreNan       = ignoreNan,
                                     verbose         = verbose,
                                     predict_col     = predict_col)
+        if self.selfPredict is True:
+            self.RevMap.selfPredict = self.RevMap.columns[0] if len(self.RevMap.columns) == 1 else None
+        else:
+            self.RevMap.selfPredict = None
+
 
     #-------------------------------------------------------------------
     # Methods
     #-------------------------------------------------------------------
+
+    def process_CMStats(self, CMStats):
+        CMDF = []
+        for libSize in CMStats.keys():
+            LibSize = [libSize] * self.sample  # this libSize sample times
+            libStats = CMStats[libSize]  # sample ComputeError dicts
+
+            libStatsDF = DataFrame(libStats)
+            libSizeDF = DataFrame({'LibSize': LibSize})
+            libDF = concat([libSizeDF, libStatsDF], axis=1)
+
+            CMDF.append(libDF)
+
+        return concat(CMDF, axis=0)
+
     def Project( self, sequential = False) :
         '''CCM both directions with CrossMap()'''
 
@@ -154,38 +184,64 @@ class CCM:
                         FwdCM['libRho'].values(),
                         f"{RevCM['columns'][0]}:{RevCM['target'][0]}" :
                         RevCM['libRho'].values() } )
+        self.libMeans_self=None
+        if self.selfPredict is True:
+            self.libMeans_self = \
+                DataFrame( {'LibSize' : FwdCM['libRho_self'].keys(),
+                            f"{FwdCM['columns'][0]}:{FwdCM.selfPredict}" :
+                            FwdCM['libRho_self'].values(),
+                            f"{RevCM['columns'][0]}:{RevCM.selfPredict}" :
+                            RevCM['libRho_self'].values() } )
 
         if self.includeData :
             FwdCMStats = FwdCM['predictStats'] # key libSize : list of CE dicts
             RevCMStats = RevCM['predictStats']
 
-            FwdCMDF = []
-            for libSize in FwdCMStats.keys() :
-                LibSize  = [libSize] * self.sample # this libSize sample times
-                libStats = FwdCMStats[libSize]     # sample ComputeError dicts
+            FwdCMStats_self = FwdCM['predictStats_self']
+            RevCMStats_self = RevCM['predictStats_self']
 
-                libStatsDF = DataFrame( libStats )
-                libSizeDF  = DataFrame( { 'LibSize' : LibSize } )
-                libDF      = concat( [libSizeDF, libStatsDF], axis = 1 )
-
-                FwdCMDF.append( libDF )
-
-            RevCMDF = []
-            for libSize in RevCMStats.keys() :
-                LibSize  = [libSize] * self.sample # this libSize sample times
-                libStats = RevCMStats[libSize]     # sample ComputeError dicts
-
-                libStatsDF = DataFrame( libStats )
-                libSizeDF  = DataFrame( { 'LibSize' : LibSize } )
-                libDF      = concat( [libSizeDF, libStatsDF], axis = 1 )
-
-                RevCMDF.append( libDF )
-
-            FwdStatDF = concat( FwdCMDF, axis = 0 )
-            RevStatDF = concat( RevCMDF, axis = 0 )
-
+            # Create DataFrames for each libSize
+            FwdStatDF = self.process_CMStats(self, FwdCMStats)
+            RevStatDF = self.process_CMStats(self, RevCMStats)
             self.PredictStats1 = FwdStatDF
             self.PredictStats2 = RevStatDF
+            self.PredictStats1_self = None
+            self.PredictStats2_self = None
+
+            if self.selfPredict is True:
+                FwdStatDF_self = self.process_CMStats(self, FwdCMStats_self)
+                RevStatDF_self = self.process_CMStats(self, RevCMStats_self)
+
+                self.PredictStats1_self = FwdStatDF_self
+                self.PredictStats2_self = RevStatDF_self
+
+            # FwdCMDF = []
+            # for libSize in FwdCMStats.keys() :
+            #     LibSize  = [libSize] * self.sample # this libSize sample times
+            #     libStats = FwdCMStats[libSize]     # sample ComputeError dicts
+            #
+            #     libStatsDF = DataFrame( libStats )
+            #     libSizeDF  = DataFrame( { 'LibSize' : LibSize } )
+            #     libDF      = concat( [libSizeDF, libStatsDF], axis = 1 )
+            #
+            #     FwdCMDF.append( libDF )
+            #
+            # RevCMDF = []
+            # for libSize in RevCMStats.keys() :
+            #     LibSize  = [libSize] * self.sample # this libSize sample times
+            #     libStats = RevCMStats[libSize]     # sample ComputeError dicts
+            #
+            #     libStatsDF = DataFrame( libStats )
+            #     libSizeDF  = DataFrame( { 'LibSize' : LibSize } )
+            #     libDF      = concat( [libSizeDF, libStatsDF], axis = 1 )
+            #
+            #     RevCMDF.append( libDF )
+            #
+            # FwdStatDF = concat( FwdCMDF, axis = 0 )
+            # RevStatDF = concat( RevCMDF, axis = 0 )
+
+            # self.PredictStats1 = FwdStatDF
+            # self.PredictStats2 = RevStatDF
 
     #-------------------------------------------------------------------
     # 
@@ -201,6 +257,18 @@ class CCM:
         else :
             raise RuntimeError( f'{self.name}: CrossMap() Invalid Map' )
 
+        if S.selfPredict is not None :
+            S.targetVec_self = S.dataFrame[ S.selfPredict ].to_numpy()
+
+        if self.shuffleLibs is True:
+            # Shuffle the library indices
+            RNG = default_rng(self.seed)
+            shuffled_inds = RNG.permutation(arange(S.targetVec))
+            S.targetVec = S.targetVec[shuffled_inds]
+            if S.selfPredict is not None:
+                S.targetVec_self = S.targetVec_self[shuffled_inds]
+
+
         # Create random number generator : None sets random state from OS
         RNG = default_rng( self.seed )
 
@@ -213,17 +281,24 @@ class CCM:
         libStatMap = {} # Output dict libSize key : list of ComputeError dicts
         libPredMap = {} # Output dict libSize key : list of predictions
 
+        libRhoMap_self = {} # Output dict libSize key : mean rho value for self-prediction
+        libStatMap_self = {} # Output dict libSize key : list of ComputeError dicts for self-prediction
+        # libPredMap_self = {} # Output dict libSize key : list of self-predictions
+
         # colVec = self.Data[[S.columns[0]]].to_numpy()
 
         # Loop for library sizes
         # recon mission-JPL
         lib_picks_dict = {}
         lib_perf_dict = {}
+
+        lib_perf_dict_self = {}
         for libSize in self.libSizes :
             # print(f'libSize: {libSize}')
             lib_picks_dict[libSize] = []
             # lib_perf_dict[libSize] = []
             rhos = zeros( self.sample )
+            rhos_self = zeros( self.sample )
 
             # ## modification
             # col_preds = zeros( (len(S.pred_i), self.sample+1) )
@@ -231,6 +306,7 @@ class CCM:
 
             if self.includeData :
                 predictStats = [None] * self.sample
+                predictStats_self = [None] * self.sample
 
             # Loop for subsamples
             for s in range( self.sample ) :
@@ -266,9 +342,18 @@ class CCM:
                 # knn_neighbors_Tp is the set of knn nearest neighbor prediction indexes (located at index +Tp)
                 # for each prediction row
                 libTargetValues = zeros( knn_neighbors_Tp.shape ) # Npred x k
+                if S.selfPredict is not None:
+                    libTargetvalues_self = zeros( knn_neighbors_Tp.shape ) # Npred x k
+
                 for j in range( knn_neighbors_Tp.shape[1] ) :
                     libTargetValues[ :, j ][ :, None ] = \
                         S.targetVec[ knn_neighbors_Tp[ :, j ] ]
+
+                    if S.selfPredict is not None:
+                        libTargetvalues_self[ :, j ][ :, None ] = \
+                            S.targetVec_self[ knn_neighbors_Tp[ :, j ] ]
+
+
                 # Code from Simplex:Project ----------------------------------
                 # print(libTargetValues.shape, libTargetValues, weights)
                 # Projection is average of weighted knn library target values
@@ -277,6 +362,10 @@ class CCM:
                                   axis = 1) / weightRowSum
                 else:
                     projection = sum(libTargetValues, axis=1) / S.knn
+
+                    if S.selfPredict is not None:
+                        projection_self = sum( libTargetvalues_self,
+                                      axis = 1) / S.knn
 
 
 
@@ -287,6 +376,13 @@ class CCM:
                     projection[ :S.Tp ] = nan
                 elif S.Tp < 0 :
                     projection[ S.Tp: ] = nan
+
+                if S.selfPredict is not None:
+                    projection_self = roll(projection_self, S.Tp)
+                    if S.Tp > 0 :
+                        projection_self[:S.Tp ] = nan
+                    elif S.Tp < 0 :
+                        projection_self[S.Tp:] = nan
 
                 # calculate error based on predictions not made on library data
                 # mask = in1d(S.pred_i, S.lib_i)
@@ -303,6 +399,7 @@ class CCM:
                         pred_num = int(self.pred_num)
 
                     pred_samplings = []
+                    pred_samplings_self = []
                     available_proj_ind = where(~isnan(projection))[0]
                     for _ in range(30):
                         # pred_sample = RNG.choice(S.pred_i, size=min(len(S.pred_i)-1, pred_num),
@@ -319,8 +416,17 @@ class CCM:
 
                         pred_samplings.append(err)
 
+                        if S.selfPredict is not None:
+                            err_self = ComputeError(S.targetVec_self[pred_sample, 0],
+                                                    projection_self[pred_sample], digits=5)
+                            pred_samplings_self.append(err_self)
+
                     pred_stats = DataFrame(pred_samplings)
                     err = pred_stats.mean(axis=0).to_dict()
+
+                    if S.selfPredict is not None:
+                        pred_stats_self = DataFrame(pred_samplings_self)
+                        err_self = pred_stats_self.mean(axis=0).to_dict()
 
                         # bool_mask = isin(S.pred_i, pred_sample)
                         # bool_pred_saple = S.pred_i == pred_sample
@@ -330,6 +436,11 @@ class CCM:
                 else:
                     err = ComputeError( S.targetVec[S.pred_i, 0 ],
                                     projection, digits = 5 )
+
+                    if S.selfPredict is not None:
+                        err_self = ComputeError(S.targetVec_self[S.pred_i, 0],
+                                                projection_self, digits=5)
+
                 # tar_preds[:, 0] = S.targetVec[ S.pred_i, 0 ]
                 # # print(S.lib_i)
                 # # print(S.pred_i)
@@ -337,9 +448,14 @@ class CCM:
                 # # err['pred_i'] = S.pred_i
 
                 rhos[ s ] = err['rho']
+                if S.selfPredict is not None:
+                    rhos_self[s] = err_self['rho']
+                    lib_perf_dict_self[libSize] = rhos_self
 
                 if self.includeData :
                     predictStats[s] = err
+                    if S.selfPredict is not None:
+                        predictStats_self[s] = err_self
 
                 # ## modification
                 # # Save the predictions for this subsample
@@ -374,8 +490,14 @@ class CCM:
             libRhoMap[ libSize ] = aggregate_data(rhos, self.aggMethod)
             lib_perf_dict[libSize]=rhos
 
+            if S.selfPredict is not None:
+                libRhoMap_self[ libSize ] = aggregate_data(rhos_self, self.aggMethod)
+                lib_perf_dict_self[libSize] = rhos_self
+
             if self.includeData :
                 libStatMap[ libSize ] = predictStats
+                if S.selfPredict is not None:
+                    libStatMap_self[libSize] = predictStats_self
                 # libPredMap[ libSize ] = tar_preds
 
         # Reset S.lib_i to original
@@ -383,7 +505,8 @@ class CCM:
 
         if self.includeData :
             return { 'columns' : S.columns, 'target' : S.target, 'lib_pics': lib_picks_dict, 'lib_perf':lib_perf_dict,
-                     'libRho' : libRhoMap, 'predictStats' : libStatMap, 'predictions' : libPredMap}
+                     'libRho' : libRhoMap, 'predictStats' : libStatMap, 'predictions' : libPredMap, 'libRho_self': libRhoMap_self,
+                     'predictStats_self': libStatMap_self }
         else :
             return {'columns':S.columns, 'target':S.target, 'libRho':libRhoMap}
 

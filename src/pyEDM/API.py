@@ -259,7 +259,9 @@ def CCM( dataFrame        = None,
          weighted         = None,
          num_threads      = None,
          pred_num        = None,
-         predict_col      = False):
+         predict_col      = False,
+         selfPredict = False,
+         shuffleLibs = False ):
     '''Convergent Cross Mapping.'''
 
     # Instantiate CCMClass object
@@ -285,7 +287,9 @@ def CCM( dataFrame        = None,
                   weighted        = weighted,
                   num_threads     = num_threads,
                   pred_num        = pred_num,
-                  predict_col     = predict_col)
+                  predict_col     = predict_col,
+                  selfPredict     = selfPredict,
+                  shuffleLibs         = shuffleLibs )
 
     # Embedding of Forward & Reverse mapping
     C.FwdMap.EmbedData()
@@ -315,7 +319,10 @@ def CCM( dataFrame        = None,
         if includeData :
             return { 'LibMeans'      : C.libMeans,
                      'PredictStats1' : C.PredictStats1,
-                     'PredictStats2' : C.PredictStats2 }
+                     'PredictStats2' : C.PredictStats2 ,
+                     'LibMeans_self': C.libMeans_self,
+                     'PredictStats1_self': C.PredictStats1_self,
+                     'PredictStats2_self': C.PredictStats2_self}
         else :
             return C.libMeans
 
