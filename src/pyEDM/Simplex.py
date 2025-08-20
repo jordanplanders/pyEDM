@@ -31,7 +31,8 @@ class Simplex( EDMClass ):
                   ignoreNan       = True,
                   verbose         = False,
                   weighted        = None,
-                  predict_col     = None ) :
+                  predict_col     = None,
+                  selfPredict     = None) :
         '''Initialize Simplex as child of EDM. 
            Set data object to dataFrame.
            Setup : Validate(), CreateIndices(), get targetVec, allTime'''
@@ -56,6 +57,7 @@ class Simplex( EDMClass ):
         self.verbose         = verbose
         self.weighted        = weighted  if weighted  is not None else True
         self.predict_col     = predict_col
+        self.selfPredict     = selfPredict
 
 
         # Prediction row accounting of library neighbor ties

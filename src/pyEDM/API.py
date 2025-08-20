@@ -106,7 +106,8 @@ def Simplex( dataFrame       = None,
              ignoreNan       = True,
              returnObject    = False ,
              weighted        = None,
-             predict_col     = None):
+             predict_col     = None,
+             selfPredict     = None ):
     '''Simplex prediction of dataFrame target from columns.'''
 
     # Instantiate SimplexClass object
@@ -128,7 +129,8 @@ def Simplex( dataFrame       = None,
                       ignoreNan       = ignoreNan,
                       verbose         = verbose ,
                       weighted        = weighted,
-                      predict_col     = predict_col)
+                      predict_col     = predict_col,
+                      selfPredict     = selfPredict )
 
     S.EmbedData()
     S.RemoveNan()

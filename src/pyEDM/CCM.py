@@ -108,8 +108,7 @@ class CCM:
                                     predict_col     = predict_col)
         if self.selfPredict is True:
             self.FwdMap.selfPredict = self.FwdMap.columns[0] if len(self.FwdMap.columns) == 1 else None
-        else:
-            self.FwdMap.selfPredict = None
+
 
         if self.predict_col ==True:
             predict_col = [col for col in columns if 'predictant' in col][0]
@@ -133,8 +132,7 @@ class CCM:
                                     predict_col     = predict_col)
         if self.selfPredict is True:
             self.RevMap.selfPredict = self.RevMap.columns[0] if len(self.RevMap.columns) == 1 else None
-        else:
-            self.RevMap.selfPredict = None
+
 
 
     #-------------------------------------------------------------------
@@ -185,12 +183,13 @@ class CCM:
                         f"{RevCM['columns'][0]}:{RevCM['target'][0]}" :
                         RevCM['libRho'].values() } )
         self.libMeans_self=None
+
         if self.selfPredict is True:
             self.libMeans_self = \
                 DataFrame( {'LibSize' : FwdCM['libRho_self'].keys(),
-                            f"{FwdCM['columns'][0]}:{FwdCM.selfPredict}" :
+                            f"{FwdCM['columns'][0]}:{FwdCM['columns'][0]}" :
                             FwdCM['libRho_self'].values(),
-                            f"{RevCM['columns'][0]}:{RevCM.selfPredict}" :
+                            f"{RevCM['columns'][0]}:{RevCM['columns'][0]}" :
                             RevCM['libRho_self'].values() } )
 
         if self.includeData :
@@ -201,16 +200,16 @@ class CCM:
             RevCMStats_self = RevCM['predictStats_self']
 
             # Create DataFrames for each libSize
-            FwdStatDF = self.process_CMStats(self, FwdCMStats)
-            RevStatDF = self.process_CMStats(self, RevCMStats)
+            FwdStatDF = self.process_CMStats(FwdCMStats)
+            RevStatDF = self.process_CMStats(RevCMStats)
             self.PredictStats1 = FwdStatDF
             self.PredictStats2 = RevStatDF
             self.PredictStats1_self = None
             self.PredictStats2_self = None
 
             if self.selfPredict is True:
-                FwdStatDF_self = self.process_CMStats(self, FwdCMStats_self)
-                RevStatDF_self = self.process_CMStats(self, RevCMStats_self)
+                FwdStatDF_self = self.process_CMStats(FwdCMStats_self)
+                RevStatDF_self = self.process_CMStats(RevCMStats_self)
 
                 self.PredictStats1_self = FwdStatDF_self
                 self.PredictStats2_self = RevStatDF_self
@@ -258,12 +257,12 @@ class CCM:
             raise RuntimeError( f'{self.name}: CrossMap() Invalid Map' )
 
         if S.selfPredict is not None :
-            S.targetVec_self = S.dataFrame[ S.selfPredict ].to_numpy()
+            S.targetVec_self = S.Data[ [S.selfPredict] ].to_numpy()
 
         if self.shuffleLibs is True:
             # Shuffle the library indices
             RNG = default_rng(self.seed)
-            shuffled_inds = RNG.permutation(arange(S.targetVec))
+            shuffled_inds = RNG.permutation(arange(len(S.targetVec)))
             S.targetVec = S.targetVec[shuffled_inds]
             if S.selfPredict is not None:
                 S.targetVec_self = S.targetVec_self[shuffled_inds]
